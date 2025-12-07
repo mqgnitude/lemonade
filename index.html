@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Econ-o-mancer</title>
+    <link rel="stylesheet" href="css/retro.css">
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+</head>
+<body>
+    <div class="crt-container">
+        <div class="screen-overlay"></div>
+        <div id="output" class="terminal-output">
+            Loading Python Environment... Please wait...
+        </div>
+        <div class="input-line">
+            <span class="prompt">></span>
+            <input type="text" id="command-input" autocomplete="off" autofocus>
+        </div>
+    </div>
+
+    <script>
+        let pyodide;
+        let pythonMain;
+
+        const outputDiv = document.getElementById('output');
+        const inputField = document.getElementById('command-input');
+
+        window.addToTerminal = (text) => {
+            outputDiv.innerText += text + "\n";
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        };
+
+        window.clearTerminal = () => {
+            outputDiv.innerText = "";
+        }
+
+        async function main() {
+            pyodide = await loadPyodide();
+            
+            const files = [
+                'py/data_models.py', 'py/events.py', 'py/game_engine.py', 
+                'py/save_manager.py', 'py/tutorial.py', 'py/ui_web.py', 'py/main_web.py',
+                'assets/ascii_logo.txt', 'saves/sample_easy.json', 'saves/sample_hard.json'
+            ];
+
+            for (let file of files) {
+                let response = await fetch(file);
+                if (!response.ok) { console.error(`Failed to load ${file}`); continue; }
+                let text = await response.text();
+                
+                let pathParts = file.split('/');
+                let filename = pathParts.pop();
+                let dir = pathParts.join('/');
+                if(dir) pyodide.FS.mkdirTree(dir);
+                
+                pyodide.FS.writeFile(file, text);
+            }
+
+            pyodide.runPython(`
+                import sys
+                sys.path.append('/py')
+                from py.main_web import WebGame
+                game = WebGame()
+                game.start()
+            `);
+            
+            window.addToTerminal("System Ready. Type a command.");
+            
+            inputField.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    let cmd = inputField.value;
+                    window.addToTerminal(`> ${cmd}`);
+                    inputField.value = '';
+                    pyodide.runPython(`game.process_input("${cmd}")`);
+                }
+            });
+        }
+        main();
+    </script>
+</body>
+</html>
