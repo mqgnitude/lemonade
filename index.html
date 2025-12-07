@@ -11,7 +11,7 @@
     <div class="crt-container">
         <div class="screen-overlay"></div>
         <div id="output" class="terminal-output">
-            Initializing System...
+            67...
         </div>
         <div class="input-line">
             <span class="prompt">></span>
@@ -21,7 +21,6 @@
 
     <script>
         let pyodide;
-        let pythonMain;
 
         const outputDiv = document.getElementById('output');
         const inputField = document.getElementById('command-input');
@@ -54,42 +53,47 @@
                     'saves/sample_hard.json'
                 ];
 
-                // 1. Create all necessary folders FIRST (Prevents the crash)
-                window.addToTerminal("Configuring Virtual File System...");
+                window.addToTerminal("Verifying file system...");
+
+                // 1. PRE-CREATE FOLDERS (Safe Mode)
+                // This manually creates folders only if they are missing
                 const directories = new Set();
                 files.forEach(file => {
                     const parts = file.split('/');
-                    parts.pop(); // Remove filename
+                    parts.pop(); 
                     if (parts.length > 0) directories.add(parts.join('/'));
                 });
 
                 directories.forEach(dir => {
-                    try {
+                    // This check prevents the 'Errno 44' crash completely
+                    if (!pyodide.FS.analyzePath(dir).exists) {
                         pyodide.FS.mkdirTree(dir);
-                    } catch (e) {
-                        // Ignore if folder exists, this is safe now
                     }
                 });
 
-                // 2. Download and write files
                 window.addToTerminal("Downloading game assets...");
-                
+
+                // 2. DOWNLOAD AND WRITE
                 for (let file of files) {
                     let response = await fetch(file);
                     
                     if (!response.ok) { 
-                        console.warn(`Failed to load ${file} (Status: ${response.status})`); 
-                        window.addToTerminal(`[ERROR] Missing file: ${file} (404)`);
-                        if(file.includes("__init__.py")) {
-                             window.addToTerminal("TIP: Make sure py/__init__.py is NOT empty.");
-                        }
+                        window.addToTerminal(`[ERROR 404] Missing file: ${file}`);
+                        // We do not stop here, so you can see all missing files
                         continue; 
                     }
                     let text = await response.text();
-                    pyodide.FS.writeFile(file, text);
+                    
+                    // Safe Write
+                    try {
+                        pyodide.FS.writeFile(file, text);
+                    } catch (e) {
+                        console.error(e);
+                        window.addToTerminal(`[Write Error] Could not write ${file}`);
+                    }
                 }
 
-                // 3. Start Python
+                // 3. START GAME
                 window.addToTerminal("Booting Python kernel...");
 
                 pyodide.runPython(`
@@ -99,9 +103,9 @@
                         from py.main_web import WebGame
                         game = WebGame()
                         game.start()
-                    except ImportError as ie:
-                        print(f"Startup Error: {ie}")
-                        print("Check the terminal above for missing files.")
+                    except ImportError as e:
+                        print(f"CRITICAL: Could not load game modules. {e}")
+                        print("This usually means py/__init__.py is missing.")
                     except Exception as e:
                         print(f"Error: {e}")
                 `);
@@ -113,19 +117,13 @@
                         let cmd = inputField.value;
                         window.addToTerminal(`> ${cmd}`);
                         inputField.value = '';
-                        
-                        try {
-                            pyodide.runPython(`game.process_input("${cmd}")`);
-                        } catch (pyError) {
-                            window.addToTerminal("Python Error: " + pyError.message);
-                        }
+                        pyodide.runPython(`game.process_input("${cmd}")`);
                     }
                 });
 
             } catch (err) {
                 console.error(err);
-                window.addToTerminal("\nCRITICAL FAILURE:");
-                window.addToTerminal(err.message);
+                window.addToTerminal("\nFATAL ERROR: " + err.message);
             }
         }
 
